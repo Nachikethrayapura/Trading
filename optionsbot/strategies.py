@@ -140,6 +140,7 @@ class _Ctx:
     shift: float  # expected log-drift over the horizon from the directional view
     cfg: Config
     lot_size: int
+    oi_available: bool = True
     terminal: np.ndarray = field(default=None)  # type: ignore[assignment]
     weights: np.ndarray = field(default=None)  # type: ignore[assignment]
 
@@ -191,13 +192,14 @@ def evaluate(legs: list[Leg], ctx: _Ctx) -> dict | None:
     }
 
 
-def _liquid(q: OptionQuote | None, cfg: Config, min_oi: float | None = None) -> bool:
+def _liquid(q: OptionQuote | None, ctx: _Ctx, min_oi: float | None = None) -> bool:
     if q is None or q.mid <= 0 or q.iv <= 0:
         return False
-    if q.oi < (cfg.strategy.min_oi if min_oi is None else min_oi):
+    s = ctx.cfg.strategy
+    if ctx.oi_available and q.oi < (s.min_oi if min_oi is None else min_oi):
         return False
     spread = q.spread_pct
-    return spread is None or spread <= cfg.strategy.max_bid_ask_pct
+    return spread is None or spread <= s.max_bid_ask_pct
 
 
 def _leg(q: OptionQuote, side: int, ctx: _Ctx) -> Leg:
@@ -213,14 +215,14 @@ def _credit_verticals(chain: OptionChain, expiry: date, option_type: str, step: 
     for q in chain.for_expiry(expiry):
         if q.option_type != option_type or (q.strike - ctx.spot) * direction <= 0:
             continue
-        if not _liquid(q, ctx.cfg):
+        if not _liquid(q, ctx):
             continue
         short = _leg(q, -1, ctx)
         if not s.short_delta_min <= abs(short.delta) <= s.short_delta_max:
             continue
         for w in range(1, s.max_wing_steps + 1):
             lq = chain.get(expiry, option_type, q.strike + direction * w * step)
-            if not _liquid(lq, ctx.cfg, min_oi=s.min_oi / 2):
+            if not _liquid(lq, ctx, min_oi=s.min_oi / 2):
                 continue
             legs = [short, _leg(lq, +1, ctx)]
             credit = short.price - legs[1].price
@@ -239,11 +241,11 @@ def _debit_verticals(chain: OptionChain, expiry: date, option_type: str, step: f
     out = []
     for offset in (-1, 0, 1):
         lq = chain.get(expiry, option_type, atm + direction * offset * step)
-        if not _liquid(lq, ctx.cfg):
+        if not _liquid(lq, ctx):
             continue
         for w in range(2, 2 * s.max_wing_steps + 1):
             sq = chain.get(expiry, option_type, lq.strike + direction * w * step)
-            if not _liquid(sq, ctx.cfg, min_oi=s.min_oi / 2):
+            if not _liquid(sq, ctx, min_oi=s.min_oi / 2):
                 continue
             legs = [_leg(lq, +1, ctx), _leg(sq, -1, ctx)]
             debit = legs[0].price - legs[1].price
@@ -270,6 +272,9 @@ def decide_regime(view: MarketView, cfg: Config) -> dict:
             if a.gex_regime == "positive":
                 allowed.append("IRON_CONDOR")
                 notes.append("Positive dealer gamma + no trend: range-bound, iron condor")
+            elif a.gex_regime == "unknown":
+                allowed.append("IRON_CONDOR")
+                notes.append("No trend (dealer gamma unknown without OI data): iron condor")
             else:
                 notes.append("Negative dealer gamma without a clear trend: ranges unreliable, stand aside")
         elif d > 0:
@@ -281,7 +286,11 @@ def decide_regime(view: MarketView, cfg: Config) -> dict:
         notes.append("Vol not rich + strong trend: buy a defined-risk debit spread with the trend")
     else:
         notes.append("No edge: vol is not rich and the trend is not strong. Standing aside")
-    label = "PREMIUM_SELLING" if rich else ("TREND_FOLLOWING" if allowed else "NO_TRADE")
+    disabled = [a for a in allowed if a not in s.enabled_strategies]
+    if disabled:
+        notes.append(f"{', '.join(disabled)} disabled in config")
+        allowed = [a for a in allowed if a in s.enabled_strategies]
+    label = ("PREMIUM_SELLING" if rich else "TREND_FOLLOWING") if allowed else "NO_TRADE"
     return {"label": label, "allowed": allowed, "notes": notes, "vol_rich": rich, "vol_cheap": cheap}
 
 
@@ -295,7 +304,7 @@ def _confidence(strategy: str, view: MarketView, stats: dict, wall_protected: bo
     s = cfg.strategy
     d = abs(view.direction)
     rich = _vol_richness(view)
-    gex_pos = 1.0 if view.analytics.gex_regime == "positive" else 0.0
+    gex_pos = {"positive": 1.0, "negative": 0.0}.get(view.analytics.gex_regime, 0.5)
     if strategy == "IRON_CONDOR":
         regime = 0.45 * rich + 0.35 * clamp(1 - d / s.trend_threshold, 0, 1) + 0.2 * gex_pos
     elif STRATEGY_KIND[strategy] == CREDIT:
@@ -340,7 +349,7 @@ def generate_ideas(view: MarketView, chain: OptionChain, now: datetime, cfg: Con
     w = s.vrp_weight if view.realized_vol is not None else 0.0
     phys_vol = w * (view.realized_vol or 0) + (1 - w) * a.atm_iv
     shift = s.trend_edge * view.direction * phys_vol * np.sqrt(a.t_years)
-    ctx = _Ctx(a.spot, a.t_years, cfg.risk_free_rate, phys_vol, float(shift), cfg, a.lot_size)
+    ctx = _Ctx(a.spot, a.t_years, cfg.risk_free_rate, phys_vol, float(shift), cfg, a.lot_size, chain.oi_available)
     expiry = date.fromisoformat(a.expiry)
     step = a.strike_step
 

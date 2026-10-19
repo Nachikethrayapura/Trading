@@ -14,6 +14,7 @@ from .analytics.indicators import clamp, realized_vol, trend_score
 from .config import Config
 from .data.base import DataUnavailable, MarketDataProvider
 from .models import INDEX_SYMBOLS, Bar, OptionChain, is_market_open
+from .notify import make_notifier
 from .paper import PaperBroker
 from .risk import RiskManager
 from .storage import Store
@@ -24,6 +25,7 @@ log = logging.getLogger(__name__)
 INTRADAY_TTL = 240.0
 DAILY_TTL = 6 * 3600.0
 AFTER_HOURS_POLL = 300.0
+ALERT_ICONS = {"entry": "🟢 ENTRY", "exit": "🔵 EXIT", "risk": "⛔ RISK"}
 
 
 def make_provider(cfg: Config) -> MarketDataProvider:
@@ -75,8 +77,11 @@ def _clean(obj):
 
 
 class TradingBot:
-    def __init__(self, cfg: Config, provider: MarketDataProvider | None = None, store: Store | None = None) -> None:
+    def __init__(self, cfg: Config, provider: MarketDataProvider | None = None, store: Store | None = None,
+                 alerts: bool = True) -> None:
         self.cfg = cfg
+        self.notifier = make_notifier(cfg.alerts) if alerts else None
+        self._was_halted = False
         self.provider = provider or make_provider(cfg)
         self.store = store or Store(cfg.db_path)
         self.broker = PaperBroker(cfg, self.store)
@@ -96,6 +101,12 @@ class TradingBot:
     def _event(self, now: datetime, kind: str, message: str) -> None:
         self.events.appendleft({"time": now.isoformat(), "kind": kind, "message": message})
         log.info("[%s] %s", kind, message)
+        if self.notifier and kind in ALERT_ICONS:
+            self.notifier.send(f"{ALERT_ICONS[kind]} {message}")
+
+    def _alert(self, text: str, key: str, cooldown_minutes: float) -> None:
+        if self.notifier:
+            self.notifier.send(text, key=key, cooldown=cooldown_minutes * 60)
 
     def _cached(self, key: tuple, ttl: float, fetch):
         if self.provider.simulated:
@@ -146,11 +157,15 @@ class TradingBot:
                         log.exception("Error processing %s", symbol)
                     errors.append(f"{symbol}: {exc}")
                     symbols[symbol] = {"error": str(exc)}
+                    self._alert(f"⚠️ DATA {symbol}: {exc}", f"err:{symbol}", self.cfg.alerts.data_error_cooldown_minutes)
 
             halted, flatten = self.risk.check_circuit_breaker(self.broker, now)
             if flatten and self.broker.open_positions():
                 self._event(now, "risk", f"Circuit breaker: {self.risk.halt_reason}. Flattening all positions")
                 self._flatten(now, "Circuit breaker: daily loss limit")
+            elif halted and not self._was_halted:
+                self._event(now, "risk", f"Circuit breaker: {self.risk.halt_reason}. No new entries today")
+            self._was_halted = halted
 
             realized = self.broker.total_realized()
             unrealized = self.broker.unrealized()
@@ -188,6 +203,8 @@ class TradingBot:
 
         regime, ideas = generate_ideas(view, chain, now, cfg)
         common = self.risk.entry_blockers(symbol, now, stale, self.provider.simulated)
+        if (provider_block := self.provider.entry_blocker()):
+            common.append(provider_block)
         for idea in ideas:
             idea.lots = self.risk.size(idea)
             idea.blockers = common + self.risk.trade_blockers(idea, idea.lots, self.broker, now)
@@ -198,6 +215,15 @@ class TradingBot:
                 ideas[0].status = "blocked"
             elif self.auto_paper:
                 self._open(ideas[0], chain, now)
+            elif self.cfg.alerts.recommendations:
+                top = ideas[0].to_dict()
+                legs = " / ".join(l.label for l in ideas[0].legs)
+                self._alert(
+                    f"💡 IDEA {symbol} {ideas[0].strategy} exp {ideas[0].expiry}: {legs}. "
+                    f"{'Credit' if top['net_premium_per_lot'] >= 0 else 'Debit'} ₹{abs(top['net_premium_per_lot']):,.0f}/lot, "
+                    f"max loss ₹{top['max_loss_per_lot']:,.0f}/lot, POP {ideas[0].pop:.0%}, "
+                    f"confidence {ideas[0].confidence:.0%}, size {ideas[0].lots} lot(s)",
+                    f"idea:{symbol}:{ideas[0].strategy}:{legs}", self.cfg.alerts.recommendation_cooldown_minutes)
         for idea_id in [k for k, v in self.ideas.items() if v.symbol == symbol]:
             del self.ideas[idea_id]
         self.ideas.update({i.id: i for i in ideas})

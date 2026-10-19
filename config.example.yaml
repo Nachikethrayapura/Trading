@@ -36,7 +36,7 @@ exits:
 
 strategy:
   min_dte: 2
-  max_dte: 35
+  max_dte: 40
   min_confidence: 0.55
   min_ev_per_risk: 0.03
   entry_start: "09:30"

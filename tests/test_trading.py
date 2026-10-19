@@ -169,3 +169,55 @@ def test_api_endpoints(cfg, sim):
         assert client.post("/api/flatten").json() == {"ok": True}
         with client.websocket_connect("/ws") as ws:
             assert "symbols" in ws.receive_json()
+
+
+class _FakeNotifier:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, text, key=None, cooldown=0.0):
+        self.sent.append((text, key))
+        return True
+
+
+def test_alerts_for_entries_and_recommendations(cfg, sim):
+    bot = TradingBot(cfg, provider=sim, store=Store(":memory:"), alerts=False)
+    bot.notifier = _FakeNotifier()
+    bot.auto_paper = False
+    for _ in range(200):
+        bot.step()
+    ideas = [t for t, k in bot.notifier.sent if t.startswith("💡 IDEA")]
+    assert ideas, "expected at least one recommendation alert"
+    assert all(k and k.startswith("idea:") for t, k in bot.notifier.sent if t.startswith("💡"))
+    bot.auto_paper = True
+    for _ in range(200):
+        bot.step()
+    assert any(t.startswith("🟢 ENTRY") for t, _ in bot.notifier.sent)
+
+
+def test_telegram_notifier_dedupes_and_posts(monkeypatch):
+    from optionsbot import notify
+    posted = []
+
+    class Resp:
+        status_code = 200
+        text = "ok"
+
+    monkeypatch.setattr(notify.requests.Session, "post", lambda self, url, json, timeout: posted.append(json) or Resp())
+    n = notify.TelegramNotifier("TOKEN", "42")
+    assert n.send("hello", key="k", cooldown=60)
+    assert not n.send("hello again", key="k", cooldown=60)  # deduped within the cooldown
+    import time
+    for _ in range(50):
+        if posted:
+            break
+        time.sleep(0.05)
+    assert posted == [{"chat_id": "42", "text": "hello", "disable_web_page_preview": True}]
+
+
+def test_notifier_disabled_without_credentials(monkeypatch):
+    from optionsbot.config import AlertsConfig
+    from optionsbot.notify import make_notifier
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    assert make_notifier(AlertsConfig()) is None

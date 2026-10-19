@@ -149,7 +149,7 @@ class ChainAnalytics:
     put_wall: float | None
     net_gex_cr: float  # INR crore per 1% move
     gamma_flip: float | None
-    gex_regime: str  # "positive" (pinning) / "negative" (trending)
+    gex_regime: str  # "positive" (pinning) / "negative" (trending) / "unknown" (no OI data)
     skew_25d: float | None
     oi_sentiment: float
     oi_profile: list[dict] = field(default_factory=list)
@@ -168,9 +168,15 @@ def analyze_chain(chain: OptionChain, expiry: date, now: datetime, r: float,
     strikes = chain.strikes(expiry)
     atm_strike = min(strikes, key=lambda k: abs(k - spot)) if strikes else spot
     iv = atm_iv(quotes, spot)
-    pcr_oi, pcr_vol = pcr(quotes)
-    call_wall, put_wall = oi_walls(quotes, spot)
-    net_gex, flip = gamma_exposure(chain, now, r)
+    if chain.oi_available:
+        pcr_oi, pcr_vol = pcr(quotes)
+        call_wall, put_wall = oi_walls(quotes, spot)
+        net_gex, flip = gamma_exposure(chain, now, r)
+        regime = "positive" if net_gex >= 0 else "negative"
+        pain, sentiment = max_pain(quotes), oi_sentiment(quotes, spot, step, pcr_oi)
+    else:
+        pcr_oi = pcr_vol = call_wall = put_wall = flip = pain = None
+        net_gex, regime, sentiment = 0.0, "unknown", 0.0
 
     profile = []
     for k in strikes:
@@ -190,11 +196,9 @@ def analyze_chain(chain: OptionChain, expiry: date, now: datetime, r: float,
         expiry=expiry.isoformat(), dte=(expiry - now.date()).days, t_years=t,
         strike_step=step, atm_strike=atm_strike, lot_size=chain.lot_size,
         atm_iv=iv, expected_move=spot * iv * math.sqrt(t) if iv else None,
-        pcr_oi=pcr_oi, pcr_volume=pcr_vol, max_pain=max_pain(quotes),
+        pcr_oi=pcr_oi, pcr_volume=pcr_vol, max_pain=pain,
         call_wall=call_wall, put_wall=put_wall,
-        net_gex_cr=net_gex / 1e7, gamma_flip=flip,
-        gex_regime="positive" if net_gex >= 0 else "negative",
-        skew_25d=skew_25d(quotes, spot, t, r),
-        oi_sentiment=oi_sentiment(quotes, spot, step, pcr_oi),
+        net_gex_cr=net_gex / 1e7, gamma_flip=flip, gex_regime=regime,
+        skew_25d=skew_25d(quotes, spot, t, r), oi_sentiment=sentiment,
         oi_profile=profile,
     )

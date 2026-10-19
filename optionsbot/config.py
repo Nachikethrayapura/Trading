@@ -46,7 +46,7 @@ class ExitConfig:
 @dataclass
 class StrategyConfig:
     min_dte: int = 2  # avoid expiry-day gamma
-    max_dte: int = 35
+    max_dte: int = 40  # monthly-only indices can sit 36 days from the next expiry
     short_delta_min: float = 0.12
     short_delta_max: float = 0.30
     max_wing_steps: int = 4
@@ -70,6 +70,8 @@ class StrategyConfig:
     shock_move_pct: float = 1.2
     shock_window_minutes: int = 15
     event_days: list[str] = field(default_factory=list)  # YYYY-MM-DD: no new entries
+    enabled_strategies: list[str] = field(default_factory=lambda: [
+        "IRON_CONDOR", "BULL_PUT_SPREAD", "BEAR_CALL_SPREAD", "BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"])
 
 
 @dataclass
@@ -84,6 +86,16 @@ class CostConfig:
     slippage_ticks: int = 1
     slippage_spread_frac: float = 0.25  # paper fills cross this fraction of the bid-ask spread
     tick_size: float = 0.05
+
+
+@dataclass
+class AlertsConfig:
+    enabled: bool = True  # alerts only go out when a bot token and chat id are set
+    telegram_bot_token: str = ""  # or env TELEGRAM_BOT_TOKEN
+    telegram_chat_id: str = ""  # or env TELEGRAM_CHAT_ID
+    recommendations: bool = True  # alert on new actionable ideas when auto paper-trading is off
+    recommendation_cooldown_minutes: int = 30
+    data_error_cooldown_minutes: int = 60
 
 
 @dataclass
@@ -103,6 +115,7 @@ class Config:
     exits: ExitConfig = field(default_factory=ExitConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     costs: CostConfig = field(default_factory=CostConfig)
+    alerts: AlertsConfig = field(default_factory=AlertsConfig)
 
 
 def _merge(cls: type, values: dict[str, Any], path: str = "") -> Any:

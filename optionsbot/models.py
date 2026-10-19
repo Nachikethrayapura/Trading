@@ -83,6 +83,7 @@ class OptionChain:
     expiries: list[date]
     quotes: list[OptionQuote]
     lot_size: int
+    oi_available: bool = True  # False for reconstructed chains (backtests): OI signals are skipped
     _index: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
