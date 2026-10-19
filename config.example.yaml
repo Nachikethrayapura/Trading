@@ -12,9 +12,12 @@ auto_paper_trade: true             # false = recommend only; paper-trade from th
 db_path: data/paper_trades.db
 
 data:
-  provider: nse                    # nse (live public data) | simulated
-  poll_seconds: 60                 # NSE throttles; don't go below ~30
+  provider: nse                    # nse (public website) | upstox | kite (real-time broker APIs) | simulated
+  poll_seconds: 60                 # NSE throttles (keep >= 30); brokers allow ~10-15
   stale_after_seconds: 300
+  broker_oi_unit: shares           # how your broker reports OI; compare one strike with nseindia.com
+  # instrument_keys:               # Upstox keys for stock options
+  #   RELIANCE: "NSE_EQ|INE002A01018"
 
 risk:                              # the loss-minimisation controls
   capital: 500000                  # INR
@@ -42,8 +45,16 @@ strategy:
   entry_start: "09:30"
   entry_end: "14:30"
   event_days: []                   # e.g. ["2026-12-05"] for RBI policy, budget, election results
+  # Switch off any family your backtest shows losing money:
+  enabled_strategies: [IRON_CONDOR, BULL_PUT_SPREAD, BEAR_CALL_SPREAD, BULL_CALL_SPREAD, BEAR_PUT_SPREAD]
 
 costs:                             # verify against your broker
   brokerage_per_order: 20
   stt_sell_pct: 0.15
   exchange_txn_pct: 0.03503
+
+alerts:                            # Telegram; or set TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+  recommendations: true            # alert new ideas when auto_paper_trade is false
+  recommendation_cooldown_minutes: 30

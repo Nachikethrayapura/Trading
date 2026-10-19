@@ -21,7 +21,8 @@ python -m optionsbot
 python -m optionsbot --simulate
 ```
 
-Open http://127.0.0.1:8000. To customise, copy `config.example.yaml` to `config.yaml`, edit it, and
+Open http://127.0.0.1:8000. For real-time data through your broker, see
+[Broker data](#broker-data-real-time). To customise, copy `config.example.yaml` to `config.yaml`, edit it, and
 run `python -m optionsbot --config config.yaml`. Paper trades persist in `data/paper_trades.db`
 (the simulator uses a separate `data/paper_trades_sim.db`, so synthetic trades never mix with live ones).
 
@@ -74,6 +75,67 @@ Every poll (default 60s) and for each symbol, the bot works through these steps:
 
 All of these thresholds are in `config.example.yaml`.
 
+## Backtesting
+
+```bash
+python -m optionsbot.backtest --symbols NIFTY BANKNIFTY --years 3      # downloads from Yahoo
+python -m optionsbot.backtest --csv-dir history/                       # offline: NIFTY.csv, INDIAVIX.csv …
+```
+
+The backtest replays daily index prices through the *same* engine, risk manager and paper broker.
+It prints return, CAGR, max drawdown, win rate and profit factor, broken down by strategy and exit
+reason. It also writes `trades.csv`, `equity.csv` and `summary.json` to `reports/backtest/`.
+
+Free historical NSE option-chain data doesn't exist, so each day's chain is **reconstructed** from
+the index price and the previous day's India VIX close. VIX is the market's 30-day NIFTY implied
+vol; other indices use a fixed multiple of it. The replay uses the same smile and spread model as
+the simulator. Keep these limits in mind:
+
+- OI signals (dealer gamma, walls, PCR) have no history, so they are neutral in backtests.
+- Each day is four ticks: open, the two extremes, close. Entries happen only at the open
+  (any later tick would leak the day's outcome), and stops and targets are checked along that path.
+- Real skew, liquidity and fills differ from the model.
+
+Treat a backtest as a check on the rules and risk controls, not a forecast. Use it to switch off
+strategy families that lose money (`strategy.enabled_strategies`) before you paper-trade live.
+
+## Broker data (real-time)
+
+NSE's public website data is free but delayed and fragile. If you have a broker API subscription,
+use it for real-time chains:
+
+| Broker | One-time setup | Each trading day | Run |
+|---|---|---|---|
+| Upstox | Create an app at the Upstox developer console. Set `UPSTOX_API_KEY`, `UPSTOX_API_SECRET`, `UPSTOX_REDIRECT_URI` | `python -m optionsbot.auth upstox` | `python -m optionsbot --provider upstox` |
+| Zerodha Kite | Create a Kite Connect app. Set `KITE_API_KEY`, `KITE_API_SECRET` | `python -m optionsbot.auth kite` | `python -m optionsbot --provider kite` |
+
+The login helper prints a URL. Log in, then paste the URL you're redirected to. The access token is
+saved to `data/broker_tokens.json` (file mode 600) and expires the next morning. Lot sizes are read
+from the broker's contract master, so they stay current.
+
+Things to know:
+
+- Upstox supplies IV; for Kite, IV is backed out from the mid price.
+- Kite has no previous-day OI, so OI change is measured from the first reading of the session.
+- Brokers usually report OI in shares, while the analytics expect contracts. `data.broker_oi_unit`
+  controls the conversion. Check one strike against nseindia.com.
+- Trend history still comes from Yahoo.
+- The bot only **reads** data. It never places orders.
+
+## Telegram alerts
+
+1. In Telegram, message **@BotFather** and send `/newbot`. Copy the token, then `export TELEGRAM_BOT_TOKEN=...`
+2. Send any message to your new bot, then run `python -m optionsbot.notify --find-chat` and export
+   the `TELEGRAM_CHAT_ID` it prints.
+3. Run `python -m optionsbot.notify "hello"` to send a test.
+
+From then on the bot sends alerts for:
+
+- every paper entry and exit, with P&L
+- circuit-breaker trips
+- data outages (at most hourly)
+- new actionable recommendations, when auto paper-trading is off (at most every 30 minutes per idea)
+
 ## Dashboard
 
 - Account equity, day P&L against the loss limit, open risk, track record and circuit-breaker state.
@@ -93,15 +155,18 @@ All of these thresholds are in `config.example.yaml`.
 - Yahoo intraday bars can lag by a few minutes.
 - Check the lot sizes, expiry rules and STT rates in the config against current NSE/SEBI circulars.
   These change often.
-- For real-time data, a broker API (Zerodha Kite, Upstox, Angel One SmartAPI) can be added as another
-  provider implementing `optionsbot/data/base.py`.
+- For real-time data use a broker provider (above). Other brokers can be added by implementing
+  `optionsbot/data/base.py`.
 
 ## Layout
 
 ```
 optionsbot/
   analytics/   greeks.py (Black-Scholes, IV), chain_metrics.py (GEX, OI, skew), indicators.py
-  data/        nse.py (live), yahoo.py (history), simulated.py (synthetic market)
+  data/        nse.py (public), brokers.py (Upstox, Kite), yahoo.py (history),
+               simulated.py + synthetic.py (synthetic market / chain reconstruction)
+  backtest.py    historical replay through the live engine
+  notify.py      Telegram alerts;  auth.py  daily broker login
   strategies.py  regime detection, strike search, EV scoring
   risk.py        sizing, limits, circuit breaker, entry gates
   paper.py       paper broker: fills, mark-to-market, exits

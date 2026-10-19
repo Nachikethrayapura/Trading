@@ -11,11 +11,14 @@ import yaml
 
 @dataclass
 class DataConfig:
-    provider: str = "nse"  # "nse" = live public NSE + Yahoo data, "simulated" = synthetic market
+    provider: str = "nse"  # nse (public website) | upstox | kite (real-time broker APIs) | simulated
     poll_seconds: float = 60.0  # NSE rate-limits aggressively; keep >= 30s for live data
     stale_after_seconds: int = 300  # chain older than this blocks new entries
     request_timeout: float = 10.0
     max_expiries: int = 3  # expiries fetched per symbol (v3 API needs one request each)
+    strikes_each_side: int = 25  # strikes around spot requested from broker APIs
+    broker_oi_unit: str = "shares"  # "shares" or "contracts": how the broker reports OI (verify vs NSE site)
+    instrument_keys: dict[str, str] = field(default_factory=dict)  # Upstox keys for stocks, e.g. NSE_EQ|INE002A01018
     sim_minutes_per_tick: int = 5
     sim_seed: int | None = None
 

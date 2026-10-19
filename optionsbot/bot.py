@@ -35,7 +35,13 @@ def make_provider(cfg: Config) -> MarketDataProvider:
     if cfg.data.provider == "nse":
         from .data.nse import NSEProvider
         return NSEProvider(cfg)
-    raise ValueError(f"Unknown data provider {cfg.data.provider!r} (use 'nse' or 'simulated')")
+    if cfg.data.provider == "upstox":
+        from .data.brokers import UpstoxProvider
+        return UpstoxProvider(cfg)
+    if cfg.data.provider == "kite":
+        from .data.brokers import KiteProvider
+        return KiteProvider(cfg)
+    raise ValueError(f"Unknown data provider {cfg.data.provider!r} (use nse, upstox, kite or simulated)")
 
 
 def percentile_rank(history: list[float], value: float) -> float | None:

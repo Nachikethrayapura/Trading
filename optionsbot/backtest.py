@@ -301,15 +301,18 @@ def main() -> None:
     cfg = load_config(args.config)
     symbols = [s.upper() for s in (args.symbols or cfg.symbols)]
     cfg.symbols = symbols
-    if args.csv_dir:
-        daily, vix = load_csv_dir(args.csv_dir, symbols)
-    else:
-        print(f"Downloading {args.years}y of daily history for {', '.join(symbols)} and India VIX from Yahoo…")
-        daily, vix = load_yahoo(symbols, args.years)
-    start = args.start
-    if start is None and not args.csv_dir:
-        start = date.today().replace(year=date.today().year - args.years)
-    provider = ReplayProvider(cfg, daily, vix, start=start, end=args.end)
+    try:
+        if args.csv_dir:
+            daily, vix = load_csv_dir(args.csv_dir, symbols)
+        else:
+            print(f"Downloading {args.years}y of daily history for {', '.join(symbols)} and India VIX from Yahoo…")
+            daily, vix = load_yahoo(symbols, args.years)
+        start = args.start
+        if start is None and not args.csv_dir:
+            start = date.today().replace(year=date.today().year - args.years)
+        provider = ReplayProvider(cfg, daily, vix, start=start, end=args.end)
+    except (DataUnavailable, OSError) as exc:
+        raise SystemExit(f"Cannot load history: {exc}") from exc
     report = run_backtest(cfg, provider)
     print_report(report)
     write_report(report, args.out)
