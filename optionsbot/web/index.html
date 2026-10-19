@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NSE Options Bot</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>NSE Options Bot</h1>
+    <span id="source" class="badge">connecting…</span>
+    <span id="market" class="badge muted"></span>
+  </div>
+  <div class="clock"><span id="clock">–</span><span id="conn" class="dot" title="Live connection"></span></div>
+  <div class="controls">
+    <button id="btn-pause" type="button">Pause</button>
+    <label class="toggle"><input id="auto-paper" type="checkbox"> Auto paper-trade</label>
+    <button id="btn-flatten" class="danger" type="button">Flatten all</button>
+  </div>
+</header>
+
+<main>
+  <div id="banners"></div>
+
+  <section class="kpis" aria-label="Account and risk">
+    <div class="kpi"><div class="label">Paper equity</div><div class="value" id="k-equity">–</div><div class="sub" id="k-capital"></div></div>
+    <div class="kpi"><div class="label">Today's P&amp;L</div><div class="value" id="k-day">–</div>
+      <div class="meter" aria-hidden="true"><span id="m-day"></span></div><div class="sub" id="k-day-sub"></div></div>
+    <div class="kpi"><div class="label">Open risk (max loss)</div><div class="value" id="k-risk">–</div>
+      <div class="meter" aria-hidden="true"><span id="m-risk"></span></div><div class="sub" id="k-risk-sub"></div></div>
+    <div class="kpi"><div class="label">Track record</div><div class="value" id="k-win">–</div><div class="sub" id="k-win-sub"></div></div>
+    <div class="kpi"><div class="label">Circuit breaker</div><div class="value" id="k-cb">–</div><div class="sub" id="k-cb-sub"></div></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Market analysis</h2>
+      <div id="tabs" class="tabs" role="tablist"></div>
+    </div>
+    <div id="symbol-panel"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Recommendations</h2><span class="hint">Defined-risk only · sized to your per-trade risk budget</span></div>
+    <div id="ideas" class="ideas"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Open paper positions</h2></div>
+    <div id="positions" class="table-wrap"></div>
+  </section>
+
+  <section class="grid-2">
+    <div class="panel">
+      <div class="panel-head"><h2>Equity curve</h2><span class="hint" id="eq-hint"></span></div>
+      <div id="equity-chart" class="chart"></div>
+      <div id="stats" class="stats"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Activity</h2></div>
+      <ul id="events" class="events"></ul>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Closed trades</h2></div>
+    <div id="closed" class="table-wrap"></div>
+  </section>
+
+  <p class="disclaimer">Educational tool. Recommendations are model output, not investment advice. Options trading
+    can lose money quickly; paper results do not guarantee live results. Free NSE data can be delayed or unavailable.</p>
+</main>
+
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
