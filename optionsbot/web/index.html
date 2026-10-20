@@ -64,6 +64,15 @@
     </div>
   </section>
 
+  <section class="panel" id="backtest-panel" hidden>
+    <div class="panel-head"><h2>Backtest on real NSE history</h2><span class="hint" id="bt-period"></span></div>
+    <div id="bt-kpis" class="stats"></div>
+    <div id="bt-chart" class="chart"></div>
+    <div id="bt-validation" class="table-wrap"></div>
+    <p class="hint">Real daily NIFTY/BANKNIFTY prices with option chains rebuilt from the previous day's India VIX.
+      Settings were chosen on the first half of the history and checked on the second half, which they never saw.</p>
+  </section>
+
   <section class="panel">
     <div class="panel-head"><h2>Closed trades</h2></div>
     <div id="closed" class="table-wrap"></div>

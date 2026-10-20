@@ -2,6 +2,7 @@
 
 const $ = (sel) => document.querySelector(sel);
 let state = null;
+const DEMO = window.OPTIONSBOT_DEMO || null; // set by the standalone replay build (python -m optionsbot.demo)
 let activeSymbol = null;
 const openDetails = new Set();
 
@@ -36,6 +37,7 @@ async function post(url) {
 }
 
 async function action(url, confirmText) {
+  if (DEMO) return;
   if (confirmText && !confirm(confirmText)) return;
   try {
     await post(url);
@@ -46,7 +48,7 @@ async function action(url, confirmText) {
   }
 }
 
-$("#btn-pause").onclick = () => action(state?.paused ? "/api/bot/resume" : "/api/bot/pause");
+$("#btn-pause").onclick = () => (DEMO ? DEMO.toggle() : action(state?.paused ? "/api/bot/resume" : "/api/bot/pause"));
 $("#btn-flatten").onclick = () => action("/api/flatten", "Close ALL open paper positions now?");
 $("#auto-paper").onchange = (e) => action(`/api/bot/auto-paper/${e.target.checked}`);
 
@@ -75,21 +77,27 @@ function render(s) {
   renderEquity(s);
   renderEvents(s);
   renderClosed(s);
+  renderBacktest(s);
 }
 
 function renderHeader(s) {
   const src = $("#source");
-  src.textContent = s.simulated ? "SIMULATED DATA" : "LIVE · NSE public";
+  src.textContent = s.demo ? (s.simulated ? "REPLAY · SIMULATED" : "RECORDED · NSE") : s.simulated ? "SIMULATED DATA" : `LIVE · ${s.provider}`;
+  if (s.demo) { $("#conn").classList.add("on"); $("#conn").title = "Replaying recorded session"; }
   src.className = `badge ${s.simulated ? "sim" : "live"}`;
   $("#market").textContent = s.market_open ? "Market open" : "Market closed";
   $("#clock").textContent = `${s.time.slice(0, 10)} ${s.time.slice(11, 19)} IST${s.vix != null ? ` · India VIX ${num(s.vix, 2)}` : ""}`;
-  $("#btn-pause").textContent = s.paused ? "Resume" : "Pause";
+  $("#btn-pause").textContent = s.paused ? (s.demo ? "Play" : "Resume") : "Pause";
   $("#btn-pause").className = s.paused ? "primary" : "";
+  document.body.classList.toggle("demo", Boolean(s.demo));
   $("#auto-paper").checked = s.auto_paper;
 
   const banners = [];
-  if (s.simulated) banners.push(`<div class="banner warn">Running on the <b>synthetic market simulator</b>: prices, OI and trades are not real. Start without <code>--simulate</code> for live NSE data.</div>`);
-  if (s.paused) banners.push(`<div class="banner warn">Bot paused: analysis continues, but no new paper trades open. Exits still run.</div>`);
+  if (s.demo && s.simulated) banners.push(`<div class="banner warn"><b>Replay of a recorded session</b> from the bot's built-in market simulator. Prices, OI and trades are synthetic. Run <code>python -m optionsbot</code> on your machine for live NSE data.</div>`);
+  else if (s.demo) banners.push(`<div class="banner warn"><b>Recorded from live NSE data</b> (${dateTime(s.recorded_span[0])} → ${dateTime(s.recorded_span[1])} IST). This page replays what the bot saw; it does not refresh itself. Run <code>python -m optionsbot</code> for a live view.</div>`);
+  else if (s.simulated) banners.push(`<div class="banner warn">Running on the <b>synthetic market simulator</b>: prices, OI and trades are not real. Start without <code>--simulate</code> for live NSE data.</div>`);
+  if (!s.simulated && !s.market_open) banners.push(`<div class="banner warn"><b>Market closed.</b> NSE reports the capital market closed (holiday, weekend or outside 09:15–15:30 IST), so prices are from the last session and no new trades are entered.</div>`);
+  if (s.paused && !s.demo) banners.push(`<div class="banner warn">Bot paused: analysis continues, but no new paper trades open. Exits still run.</div>`);
   if (s.risk.halted) banners.push(`<div class="banner error"><b>Circuit breaker tripped:</b> ${esc(s.risk.halt_reason)}. No new entries today.</div>`);
   for (const e of s.errors) banners.push(`<div class="banner error">${esc(e)}</div>`);
   $("#banners").innerHTML = banners.join("");
@@ -294,29 +302,33 @@ function renderEquity(s) {
   ].join("");
   if (pts.length < 2) { el.innerHTML = `<div class="empty">The equity curve fills in as the bot runs</div>`; return; }
   $("#eq-hint").textContent = `${dateTime(pts[0].ts)} → ${dateTime(pts[pts.length - 1].ts)}`;
+  lineChart(el, pts, s.risk.capital, "Paper account equity over time", dateTime);
+}
+
+function lineChart(el, pts, capital, label, fmtTs) {
   const W = 640, H = 220, m = { l: 64, r: 10, t: 12, b: 22 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
-  const vals = pts.map((p) => p.equity).concat([s.risk.capital]);
+  const vals = pts.map((p) => p.equity).concat([capital]);
   let lo = Math.min(...vals), hi = Math.max(...vals);
   if (hi - lo < 1) { hi += 500; lo -= 500; }
   const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
   const x = (i) => m.l + (i / (pts.length - 1)) * iw;
   const y = (v) => m.t + ih - ((v - lo) / (hi - lo)) * ih;
   const path = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`).join("");
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Paper account equity over time">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">`;
   for (const f of [0, 0.5, 1]) {
     const v = lo + (hi - lo) * f;
     svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${inr(v)}</text>`;
   }
-  svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(s.risk.capital)}" y2="${y(s.risk.capital)}" stroke="var(--text-muted)" stroke-dasharray="4 4"/>`;
-  svg += `<text x="${m.l + 4}" y="${y(s.risk.capital) + (y(s.risk.capital) > m.t + ih - 16 ? -5 : 13)}">starting capital</text>`;
+  svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(capital)}" y2="${y(capital)}" stroke="var(--text-muted)" stroke-dasharray="4 4"/>`;
+  svg += `<text x="${m.l + 4}" y="${y(capital) + (y(capital) > m.t + ih - 16 ? -5 : 13)}">starting capital</text>`;
   svg += `<path d="${path}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round"/>`;
-  svg += `<line id="eq-cross" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text-muted)" visibility="hidden"/>`;
-  svg += `<circle id="eq-dot" r="4" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
-  svg += `<rect id="eq-hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/></svg>`;
+  svg += `<line class="cross" y1="${m.t}" y2="${m.t + ih}" stroke="var(--text-muted)" visibility="hidden"/>`;
+  svg += `<circle class="dot" r="4" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  svg += `<rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/></svg>`;
   el.innerHTML = svg;
-  const svgEl = el.querySelector("svg"), cross = el.querySelector("#eq-cross"), dot = el.querySelector("#eq-dot");
-  const hit = el.querySelector("#eq-hit");
+  const svgEl = el.querySelector("svg"), cross = el.querySelector(".cross"), dot = el.querySelector(".dot");
+  const hit = el.querySelector(".hit");
   hit.onmousemove = (ev) => {
     const r = svgEl.getBoundingClientRect();
     const sx = ((ev.clientX - r.left) / r.width) * W;
@@ -324,9 +336,32 @@ function renderEquity(s) {
     const p = pts[i];
     cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
     dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(p.equity)); dot.setAttribute("visibility", "visible");
-    showTip(`<b>${inr(p.equity)}</b><br>${dateTime(p.ts)} · ${signed(p.equity - s.risk.capital)} vs capital`, ev.clientX, ev.clientY);
+    showTip(`<b>${inr(p.equity)}</b><br>${fmtTs(p.ts)} · ${signed(p.equity - capital)} vs capital`, ev.clientX, ev.clientY);
   };
   hit.onmouseleave = () => { cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); hideTip(); };
+}
+
+function renderBacktest(s) {
+  const panel = $("#backtest-panel");
+  const bt = s.backtest;
+  panel.hidden = !bt;
+  if (!bt || panel.dataset.done) return; // static content: draw once
+  panel.dataset.done = "1";
+  const st = bt.stats;
+  $("#bt-period").textContent = `${bt.period.start} → ${bt.period.end} · ${bt.symbols.join(", ")}`;
+  $("#bt-kpis").innerHTML = [
+    metric("Return", `<span class="${cls(bt.return_pct)}">${bt.return_pct >= 0 ? "+" : ""}${num(bt.return_pct, 2)}%</span>`, `CAGR ${num(bt.cagr_pct, 2)}%`),
+    metric("Max drawdown", `${num(bt.max_drawdown_pct, 2)}%`, `of ${inr(bt.capital)} capital`),
+    metric("Trades", num(st.trades), st.trades ? `${pct(st.win_rate, 0)} winners` : ""),
+    metric("Profit factor", st.profit_factor == null ? "–" : num(st.profit_factor, 2), "gross wins ÷ gross losses"),
+    metric("Avg win / loss", `${inr(st.avg_win)} / ${st.avg_loss == null ? "–" : inr(-st.avg_loss)}`),
+  ].join("");
+  lineChart($("#bt-chart"), bt.equity, bt.capital, "Backtest equity on real history", (t) => t.slice(0, 10));
+  const rows = (bt.validation || []).map((r) => `<tr><td>${esc(r.label)}</td><td>${esc(r.period)}</td>
+    <td class="num ${cls(r.return_pct)}">${r.return_pct >= 0 ? "+" : ""}${num(r.return_pct, 2)}%</td>
+    <td class="num">${num(r.max_dd_pct, 2)}%</td><td class="num">${r.trades}</td><td class="num">${num(r.profit_factor, 2)}</td></tr>`).join("");
+  $("#bt-validation").innerHTML = rows ? `<table><thead><tr><th>Settings</th><th>Period</th><th class="num">Return</th>
+    <th class="num">Max DD</th><th class="num">Trades</th><th class="num">Profit factor</th></tr></thead><tbody>${rows}</tbody></table>` : "";
 }
 
 function renderEvents(s) {
@@ -345,5 +380,9 @@ function renderClosed(s) {
       <td>${esc(p.exit_reason)}</td></tr>`).join("")}</tbody></table>`;
 }
 
-fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
-connect();
+if (DEMO) {
+  DEMO.start(render);
+} else {
+  fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+  connect();
+}

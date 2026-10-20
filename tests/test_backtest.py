@@ -61,3 +61,33 @@ def test_csv_loader_handles_nse_format(tmp_path):
     f.write_text('Date ,Open ,High ,Low ,Close \n"02-Jan-2026","26,000.5","26,100","25,900","26,050"\n')
     bars = read_csv_bars(f)
     assert bars[0].ts.date() == date(2026, 1, 2) and bars[0].open == 26000.5
+
+
+def test_demo_build_is_self_contained():
+    import json
+    import re
+
+    from optionsbot.demo import build_html, record
+    rec = record(days=1, seed=3)
+    assert len(rec["frames"]) == 75 and "equity_curve" not in rec["frames"][0]
+    html = build_html(rec)
+    assert html.startswith("<title>") and "<body" not in html and "src=" not in html  # everything inlined
+    payload = re.search(r'<script id="demo-data" type="application/json">(.*?)</script>', html, re.S).group(1)
+    assert json.loads(payload.replace("<\\/", "</"))["frames"][0]["symbols"]
+
+
+def test_record_and_replay_round_trip(tmp_path):
+    from optionsbot.bot import TradingBot
+    from optionsbot.demo import from_recording
+    from optionsbot.storage import Store
+    cfg = load_config()
+    cfg.data.provider = "simulated"
+    cfg.data.sim_seed = 4
+    path = tmp_path / "session.jsonl"
+    bot = TradingBot(cfg, provider=SimulatedProvider(cfg, warmup_days=40), store=Store(":memory:"),
+                     alerts=False, record_path=str(path))
+    for _ in range(3):
+        bot.step()
+    rec = from_recording(path)
+    assert len(rec["frames"]) == 3 and "equity_curve" not in rec["frames"][0]
+    assert len(rec["equity"]) == 3  # the full state beside the frames carries the curve

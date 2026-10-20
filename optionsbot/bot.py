@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import threading
 import time as _time
 from collections import deque
 from datetime import date, datetime
+from pathlib import Path
 
 from .analytics.chain_metrics import analyze_chain, choose_expiry
 from .analytics.indicators import clamp, realized_vol, trend_score
 from .config import Config
 from .data.base import DataUnavailable, MarketDataProvider
-from .models import INDEX_SYMBOLS, Bar, OptionChain, is_market_open
+from .models import INDEX_SYMBOLS, Bar, OptionChain
 from .notify import make_notifier
 from .paper import PaperBroker
 from .risk import RiskManager
@@ -25,6 +27,7 @@ log = logging.getLogger(__name__)
 INTRADAY_TTL = 240.0
 DAILY_TTL = 6 * 3600.0
 AFTER_HOURS_POLL = 300.0
+RECORD_HEAVY_KEYS = ("equity_curve", "closed", "events", "stats")
 ALERT_ICONS = {"entry": "🟢 ENTRY", "exit": "🔵 EXIT", "risk": "⛔ RISK"}
 
 
@@ -84,10 +87,12 @@ def _clean(obj):
 
 class TradingBot:
     def __init__(self, cfg: Config, provider: MarketDataProvider | None = None, store: Store | None = None,
-                 alerts: bool = True) -> None:
+                 alerts: bool = True, record_path: str | None = None) -> None:
         self.cfg = cfg
+        self.record_path = record_path
         self.notifier = make_notifier(cfg.alerts) if alerts else None
         self._was_halted = False
+        self._market_open = False
         self.provider = provider or make_provider(cfg)
         self.store = store or Store(cfg.db_path)
         self.broker = PaperBroker(cfg, self.store)
@@ -146,6 +151,7 @@ class TradingBot:
         with self._lock:
             self.provider.advance()
             now = self.provider.now()
+            self._market_open = self.provider.market_open()
             errors: list[str] = []
             try:
                 vix = self._cached(("vix",), INTRADAY_TTL, self.provider.india_vix)
@@ -178,6 +184,8 @@ class TradingBot:
             self.store.record_equity(now.isoformat(), self.cfg.risk.capital + realized + unrealized,
                                      realized, unrealized)
             self.state = _clean(self._snapshot(now, symbols, errors, vix))
+            if self.record_path:
+                self._record(self.state)
             return self.state
 
     def _process_symbol(self, symbol: str, now: datetime, vix: float | None, vix_hist: list[float]) -> dict:
@@ -211,6 +219,8 @@ class TradingBot:
         common = self.risk.entry_blockers(symbol, now, stale, self.provider.simulated)
         if (provider_block := self.provider.entry_blocker()):
             common.append(provider_block)
+        if not self.provider.simulated and not self._market_open and "Weekend" not in common:
+            common.append("Market closed (exchange holiday or outside trading hours)")
         for idea in ideas:
             idea.lots = self.risk.size(idea)
             idea.blockers = common + self.risk.trade_blockers(idea, idea.lots, self.broker, now)
@@ -238,6 +248,16 @@ class TradingBot:
             "analytics": analytics.to_dict(), "view": view.to_dict(), "regime": regime,
             "ideas": [i.to_dict() for i in ideas], "stale": stale, "data_age_seconds": age,
         }
+
+    def _record(self, state: dict) -> None:
+        """Append a light frame per tick; keep the latest full state beside it (for `optionsbot.demo`)."""
+        frame = {k: v for k, v in state.items() if k not in RECORD_HEAVY_KEYS}
+        with open(self.record_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(frame, separators=(",", ":")) + "\n")
+        final = Path(f"{self.record_path}.final.json")
+        tmp = final.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, separators=(",", ":")))
+        tmp.replace(final)
 
     def _open(self, idea: TradeIdea, chain: OptionChain, now: datetime) -> None:
         pos = self.broker.open(idea, chain, now, idea.lots)
@@ -269,7 +289,7 @@ class TradingBot:
                     max_open_positions=self.cfg.risk.max_open_positions)
         return {
             "time": now, "provider": self.provider.name, "simulated": self.provider.simulated,
-            "market_open": is_market_open(now), "paused": self.paused, "auto_paper": self.auto_paper,
+            "market_open": self._market_open, "paused": self.paused, "auto_paper": self.auto_paper,
             "vix": vix, "symbols": symbols, "errors": errors, "risk": risk,
             "positions": [p.to_dict() for p in self.broker.open_positions()],
             "closed": closed[:50], "stats": performance(closed, curve),
@@ -338,7 +358,7 @@ class TradingBot:
             except Exception:
                 log.exception("Bot cycle failed")
             delay = self.cfg.data.poll_seconds
-            if not self.provider.simulated and not is_market_open(self.provider.now()):
+            if not self.provider.simulated and not self._market_open:
                 delay = max(delay, AFTER_HOURS_POLL)
             await asyncio.sleep(delay)
 

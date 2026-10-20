@@ -42,14 +42,14 @@ class ExitConfig:
     credit_stop_loss_multiple: float = 1.0  # close when loss reaches 1x the credit received
     debit_take_profit_pct: float = 60.0
     debit_stop_loss_pct: float = 50.0  # close when half the debit is lost
-    short_delta_exit: float = 0.45  # short strike being tested -> exit
+    short_delta_exit: float = 1.0  # 1.0 = off; a 0.45 delta exit cut trades that later recovered (backtest)
     expiry_day_exit_time: str = "14:45"
 
 
 @dataclass
 class StrategyConfig:
-    min_dte: int = 2  # avoid expiry-day gamma
-    max_dte: int = 40  # monthly-only indices can sit 36 days from the next expiry
+    min_dte: int = 7  # weeklies inside 7 days lost money in backtests (gamma risk)
+    max_dte: int = 45  # monthly-only indices can sit ~41 days from the next usable expiry
     short_delta_min: float = 0.12
     short_delta_max: float = 0.30
     max_wing_steps: int = 4
@@ -73,8 +73,9 @@ class StrategyConfig:
     shock_move_pct: float = 1.2
     shock_window_minutes: int = 15
     event_days: list[str] = field(default_factory=list)  # YYYY-MM-DD: no new entries
-    enabled_strategies: list[str] = field(default_factory=lambda: [
-        "IRON_CONDOR", "BULL_PUT_SPREAD", "BEAR_CALL_SPREAD", "BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"])
+    # Directional spreads lost money in every 2023-2026 backtest variant; only the non-directional
+    # volatility-premium trade held up out of sample. Add the others back here to experiment.
+    enabled_strategies: list[str] = field(default_factory=lambda: ["IRON_CONDOR"])
 
 
 @dataclass

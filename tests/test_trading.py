@@ -21,6 +21,10 @@ def cfg():
     c = load_config()
     c.data.provider = "simulated"
     c.data.sim_seed = 11
+    # Exercise every structure and exit path, not just the conservative defaults.
+    c.strategy.enabled_strategies = ["IRON_CONDOR", "BULL_PUT_SPREAD", "BEAR_CALL_SPREAD",
+                                     "BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"]
+    c.strategy.min_dte = 2
     return c
 
 

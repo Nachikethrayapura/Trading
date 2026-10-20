@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--host", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, help="port (default 8000)")
     parser.add_argument("--db", dest="db_path", help="SQLite file for paper trades")
+    parser.add_argument("--record", help="append every state to this JSONL file (replay it with optionsbot.demo)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,7 +36,7 @@ def main() -> None:
             cfg.db_path = "data/paper_trades_sim.db"  # never mix synthetic trades into the live record
 
     try:
-        bot = TradingBot(cfg)
+        bot = TradingBot(cfg, record_path=args.record)
     except DataUnavailable as exc:
         raise SystemExit(f"Cannot start: {exc}") from exc
     print(f"\n  Dashboard: http://{cfg.host}:{cfg.port}   (data: {bot.provider.name})\n")

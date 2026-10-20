@@ -67,7 +67,11 @@ Every poll (default 60s) and for each symbol, the bot works through these steps:
 - **Circuit breaker:** at −2% on the day (realised + unrealised), the bot flattens everything and
   halts until tomorrow. Three consecutive losers also halt new entries.
 - **Exits:** take profit at 50% of max profit (credit) or 60% (debit). Stop at a loss equal to the credit,
-  or half the debit. Exit if a short strike's delta reaches 0.45. Close by 14:45 on expiry day.
+  or half the debit. Close by 14:45 on expiry day. An optional delta exit (`short_delta_exit`) is off by
+  default because it lost money in backtests.
+- **What it trades by default:** only iron condors with expiries at least 7 days out. These were the only
+  structures that held up on unseen data (see Backtesting). Enable the others in `strategy.enabled_strategies`.
+- **Exchange holidays:** the NSE provider asks NSE whether the market is open, so holidays block entries.
 - **Entry gates:** entries only between 09:30 and 14:30 IST. No entries on event days, on stale data,
   within 30 minutes of the last entry on that symbol, or after a 1.2% move inside 15 minutes.
 - **Realistic paper fills:** fills cross part of the bid-ask spread. Charges cover brokerage, STT,
@@ -95,6 +99,20 @@ the simulator. Keep these limits in mind:
 - Each day is four ticks: open, the two extremes, close. Entries happen only at the open
   (any later tick would leak the day's outcome), and stops and targets are checked along that path.
 - Real skew, liquidity and fills differ from the model.
+
+### Results on real history (Oct 2023 – Oct 2026, NIFTY + BANKNIFTY, ₹5 lakh)
+
+Settings were chosen on the first half and then checked on the second half, which they never saw:
+
+| Settings | Oct 2023 – Apr 2025 (tuning) | Apr 2025 – Oct 2026 (unseen) |
+|---|---|---|
+| Original: all five spreads, 2+ day expiries, 0.45-delta exit | −6.5%, max DD 7.7%, PF 0.44 | −5.2%, max DD 5.9%, PF 0.52 |
+| **Current defaults:** iron condors only, 7+ day expiries, no delta exit | +2.2%, max DD 1.1%, PF 4.7 | +0.35%, max DD 1.0%, PF 1.5 |
+
+Over the full three years the defaults made +2.6% (max drawdown 1.1%, 14 trades). The directional
+trend spreads lost money in every variant tried, which is why they are off by default. The trade
+counts are small and the edge is close to zero: the defaults mostly reduce losses rather than
+generate returns. Thirteen variants were compared on the tuning half.
 
 Treat a backtest as a check on the rules and risk controls, not a forecast. Use it to switch off
 strategy families that lose money (`strategy.enabled_strategies`) before you paper-trade live.
@@ -135,6 +153,14 @@ From then on the bot sends alerts for:
 - circuit-breaker trips
 - data outages (at most hourly)
 - new actionable recommendations, when auto paper-trading is off (at most every 30 minutes per idea)
+
+## Shareable replay
+
+Record a live session with `python -m optionsbot --record session.jsonl`, then build a page from it
+(plus a backtest) with `python -m optionsbot.demo --recording session.jsonl --backtest reports/backtest`.
+`python -m optionsbot.demo --days 3 --out demo.html` instead records a few simulated trading days and builds
+a single self-contained HTML file that replays them in the real dashboard. It needs no server, so you
+can share it. All data in it is synthetic; live market data needs the bot running on your machine.
 
 ## Dashboard
 

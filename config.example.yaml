@@ -34,19 +34,20 @@ exits:
   credit_stop_loss_multiple: 1.0   # stop when the loss equals the credit received
   debit_take_profit_pct: 60
   debit_stop_loss_pct: 50
-  short_delta_exit: 0.45           # exit when a short strike gets tested
+  short_delta_exit: 1.0            # 1.0 = off (a 0.45 exit lost money in backtests)
   expiry_day_exit_time: "14:45"
 
 strategy:
-  min_dte: 2
-  max_dte: 40
+  min_dte: 7
+  max_dte: 45
   min_confidence: 0.55
   min_ev_per_risk: 0.03
   entry_start: "09:30"
   entry_end: "14:30"
   event_days: []                   # e.g. ["2026-12-05"] for RBI policy, budget, election results
-  # Switch off any family your backtest shows losing money:
-  enabled_strategies: [IRON_CONDOR, BULL_PUT_SPREAD, BEAR_CALL_SPREAD, BULL_CALL_SPREAD, BEAR_PUT_SPREAD]
+  # Only iron condors held up in the 2023-2026 out-of-sample backtest. To experiment, add:
+  # BULL_PUT_SPREAD, BEAR_CALL_SPREAD, BULL_CALL_SPREAD, BEAR_PUT_SPREAD
+  enabled_strategies: [IRON_CONDOR]
 
 costs:                             # verify against your broker
   brokerage_per_order: 20

@@ -136,3 +136,19 @@ def test_auth_helpers():
     assert _param_from("https://127.0.0.1/cb?request_token=xyz&action=login", "request_token") == "xyz"
     assert _param_from("plain-code", "code") == "plain-code"
     assert kite_checksum("k", "r", "s") == hashlib.sha256(b"krs").hexdigest()
+
+
+def test_nse_market_status_detects_holiday(monkeypatch):
+    from optionsbot.data import nse
+    cfg = load_config()
+    p = nse.NSEProvider(cfg)
+    monkeypatch.setattr(p.nse, "get_json", lambda path, params=None: {"marketState": [
+        {"market": "Capital Market", "marketStatus": "Close"}, {"market": "Commodity", "marketStatus": "Open"}]})
+    assert p.market_open() is False
+
+    def down(path, params=None):
+        raise DataUnavailable("blocked")
+    p._status = None
+    monkeypatch.setattr(p.nse, "get_json", down)
+    from optionsbot.models import is_market_open, now_ist
+    assert p.market_open() == is_market_open(now_ist())  # falls back to the clock

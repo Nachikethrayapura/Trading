@@ -65,7 +65,7 @@ button.danger { color: var(--critical); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 
 .topbar {
-  position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px 20px;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; flex-wrap: wrap; gap: 10px 20px;
   align-items: center; justify-content: space-between; padding: 10px 16px;
   background: var(--surface-1); border-bottom: 1px solid var(--border);
 }
@@ -114,6 +114,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 16px; display: grid; gap: 16p
 .regime ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-secondary); }
 
 .chart { width: 100%; position: relative; }
+#bt-chart { max-width: 860px; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart text { fill: var(--text-secondary); font-size: 11px; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
@@ -155,3 +156,14 @@ td.num, th.num { text-align: right; }
   box-shadow: 0 4px 14px rgba(0, 0, 0, .15); white-space: nowrap;
 }
 .disclaimer { color: var(--text-muted); font-size: 12px; margin: 0; }
+
+/* Standalone replay build: server-only controls are hidden */
+body.demo #btn-flatten, body.demo .toggle, body.demo button[data-idea], body.demo button[data-close] { display: none; }
+.demo-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 14px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+.demo-bar label { color: var(--text-secondary); font-size: 12px; }
+.demo-bar input[type="range"] { flex: 1 1 220px; min-width: 0; accent-color: var(--accent); }
+.demo-bar select { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text-primary); }
+.demo-bar .pos-label { color: var(--text-muted); font-size: 12px; min-width: 9em; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
