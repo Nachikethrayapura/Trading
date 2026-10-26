@@ -19,6 +19,8 @@ YAHOO_TICKERS = {
 
 
 def yahoo_ticker(symbol: str) -> str:
+    if any(c in symbol for c in "=^."):  # already a Yahoo ticker (futures, FX, index or exchange suffix)
+        return symbol
     if symbol in YAHOO_TICKERS:
         return YAHOO_TICKERS[symbol]
     if symbol in INDEX_SYMBOLS:
